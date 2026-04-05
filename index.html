@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>What's the Protein?</title>
+
+<!-- PWA / Home Screen support -->
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Protein" />
+<meta name="theme-color" content="#0a0a0a" />
+
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🥩</text></svg>" />
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,700;0,800;1,400&family=Space+Mono:wght@700&display=swap" rel="stylesheet" />
+
+<script>
+// Generate home screen icon dynamically via canvas
+function generateIcon(size) {
+  const c = document.createElement("canvas");
+  c.width = size; c.height = size;
+  const ctx = c.getContext("2d");
+  // Background
+  const grad = ctx.createLinearGradient(0, 0, size, size);
+  grad.addColorStop(0, "#0d1117");
+  grad.addColorStop(1, "#0a1628");
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.roundRect(0, 0, size, size, size * 0.2);
+  ctx.fill();
+  // Green accent circle
+  ctx.fillStyle = "rgba(34,197,94,0.15)";
+  ctx.beginPath();
+  ctx.arc(size * 0.5, size * 0.45, size * 0.28, 0, Math.PI * 2);
+  ctx.fill();
+  // Emoji
+  ctx.font = `${size * 0.45}px serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("🥩", size * 0.5, size * 0.43);
+  // "P" label
+  ctx.font = `800 ${size * 0.18}px 'DM Sans', sans-serif`;
+  ctx.fillStyle = "#22c55e";
+  ctx.fillText("P", size * 0.5, size * 0.78);
+  return c.toDataURL("image/png");
+}
+document.addEventListener("DOMContentLoaded", () => {
+  // Apple touch icon
+  const link180 = document.createElement("link");
+  link180.rel = "apple-touch-icon";
+  link180.href = generateIcon(180);
+  document.head.appendChild(link180);
+  // Standard icons
+  [192, 512].forEach(size => {
+    const link = document.createElement("link");
+    link.rel = "icon";
+    link.type = "image/png";
+    link.sizes = `${size}x${size}`;
+    link.href = generateIcon(size);
+    document.head.appendChild(link);
+  });
+  // Inline manifest
+  const manifest = {
+    name: "What's the Protein?",
+    short_name: "Protein",
+    start_url: ".",
+    display: "standalone",
+    background_color: "#0a0a0a",
+    theme_color: "#0a0a0a",
+    icons: [
+      { src: generateIcon(192), sizes: "192x192", type: "image/png" },
+      { src: generateIcon(512), sizes: "512x512", type: "image/png" },
+    ]
+  };
+  const blob = new Blob([JSON.stringify(manifest)], { type: "application/json" });
+  const manifestLink = document.createElement("link");
+  manifestLink.rel = "manifest";
+  manifestLink.href = URL.createObjectURL(blob);
+  document.head.appendChild(manifestLink);
+});
+</script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    background: linear-gradient(165deg, #0a0a0a 0%, #0d1117 40%, #0a1628 100%);
+    font-family: 'DM Sans', 'Segoe UI', sans-serif;
+    color: white;
+    overflow-x: hidden;
+  }
+  body::before {
+    content: '';
+    position: fixed; inset: 0; opacity: 0.03; z-index: 0; pointer-events: none;
+    background-image: radial-gradient(circle at 1px 1px, white 1px, transparent 0);
+    background-size: 24px 24px;
+  }
+  input::placeholder { color: rgba(255,255,255,0.25); }
+  input[type=number]::-webkit-inner-spin-button,
+  input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  input[type=number] { -moz-appearance: textfield; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.26.9/babel.min.js"></script>
+<script type="text/babel">
+const { useState, useRef, useEffect } = React;
+
+// ─── Storage via localStorage ───
+function loadLS(key, fallback) {
+  try { const v = localStorage.getItem("pv2-" + key); return v ? JSON.parse(v) : fallback; } catch { return fallback; }
+}
+function saveLS(key, val) {
+  try { localStorage.setItem("pv2-" + key, JSON.stringify(val)); } catch {}
+}
+
+const MEAL_LABELS = ["Breakfast", "Morning Snack", "Lunch", "Afternoon Snack", "Dinner", "Evening"];
+const MEAL_EXAMPLES = [
+  "Chicken stir fry with rice", "Chipotle burrito bowl", "Eggs and sourdough toast",
+  "Chobani Greek yogurt", "Grilled salmon with vegetables", "Protein shake with banana",
+  "Turkey sandwich", "Big Mac", "Cottage cheese with berries",
+  "Beef jerky", "PB&J sandwich", "Rotisserie chicken",
+  "Chicken Caesar salad", "Overnight oats with protein powder", "Steak and potatoes",
+  "String cheese", "Almonds", "Ground beef tacos",
+];
+const TODAY = new Date().toDateString();
+
+function getScoreColor(g) {
+  if (g >= 25) return { bg: "rgba(34,197,94,0.15)", border: "#22c55e", text: "#4ade80", label: "POWERHOUSE", emoji: "💪" };
+  if (g >= 15) return { bg: "rgba(34,197,94,0.10)", border: "#86efac", text: "#86efac", label: "SOLID", emoji: "👍" };
+  if (g >= 8) return { bg: "rgba(250,204,21,0.12)", border: "#facc15", text: "#fde047", label: "PAIR IT", emoji: "🤝" };
+  return { bg: "rgba(239,68,68,0.12)", border: "#ef4444", text: "#f87171", label: "LOW", emoji: "⚠️" };
+}
+
+function CircularProgress({ current, goal }) {
+  const pct = Math.min(current / goal, 1);
+  const r = 52, circ = 2 * Math.PI * r;
+  const offset = circ * (1 - pct);
+  const color = pct >= 1 ? "#22c55e" : pct >= 0.6 ? "#facc15" : "#ef4444";
+  return (
+    <svg width="130" height="130" viewBox="0 0 120 120">
+      <circle cx="60" cy="60" r={r} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="9" />
+      <circle cx="60" cy="60" r={r} fill="none" stroke={color} strokeWidth="9"
+        strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round"
+        transform="rotate(-90 60 60)" style={{ transition: "stroke-dashoffset 0.6s ease, stroke 0.3s" }} />
+      <text x="60" y="50" textAnchor="middle" fill="white" fontSize="22" fontWeight="800" fontFamily="'DM Sans',sans-serif">{Math.round(current)}g</text>
+      <text x="60" y="68" textAnchor="middle" fill="rgba(255,255,255,0.35)" fontSize="10" fontFamily="'DM Sans',sans-serif">of {goal}g goal</text>
+    </svg>
+  );
+}
+
+function WeeklyHistory({ history, goal }) {
+  const last7 = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    const key = d.toDateString();
+    const day = history.find(h => h.date === key);
+    last7.push({ date: key, total: day?.total || 0, dayLabel: d.toLocaleDateString("en-US", { weekday: "short" }), isToday: i === 0 });
+  }
+  const activeDays = last7.filter(d => d.total > 0);
+  const avg = activeDays.length ? Math.round(activeDays.reduce((s, d) => s + d.total, 0) / activeDays.length) : 0;
+  const streak = (() => { let s = 0; for (let i = last7.length - 1; i >= 0; i--) { if (last7[i].total >= goal) s++; else if (i < last7.length - 1) break; } return s; })();
+  const maxVal = Math.max(goal, ...last7.map(d => d.total));
+  return (
+    <div style={{ animation: "fadeIn 0.2s ease" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16, gap: 8 }}>
+        <div style={{ flex: 1, padding: "10px 12px", background: "rgba(255,255,255,0.03)", borderRadius: 10, textAlign: "center" }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: streak > 0 ? "#4ade80" : "rgba(255,255,255,0.3)" }}>{streak}</div>
+          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", marginTop: 2 }}>day streak</div>
+        </div>
+        <div style={{ flex: 1, padding: "10px 12px", background: "rgba(255,255,255,0.03)", borderRadius: 10, textAlign: "center" }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: avg >= goal ? "#4ade80" : avg > 0 ? "#fde047" : "rgba(255,255,255,0.3)" }}>{avg}g</div>
+          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", marginTop: 2 }}>avg / day</div>
+        </div>
+        <div style={{ flex: 1, padding: "10px 12px", background: "rgba(255,255,255,0.03)", borderRadius: 10, textAlign: "center" }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: "rgba(255,255,255,0.6)" }}>{activeDays.filter(d => d.total >= goal).length}<span style={{ fontSize: 13, color: "rgba(255,255,255,0.25)" }}>/7</span></div>
+          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", marginTop: 2 }}>days hit</div>
+        </div>
+      </div>
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 100, padding: "0 4px" }}>
+        {last7.map((d, i) => {
+          const h = maxVal > 0 ? Math.max((d.total / maxVal) * 80, d.total > 0 ? 6 : 0) : 0;
+          const hit = d.total >= goal;
+          return (
+            <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+              <div style={{ fontSize: 9, color: d.total > 0 ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.15)", fontWeight: 600 }}>
+                {d.total > 0 ? d.total + "g" : "—"}
+              </div>
+              <div style={{
+                width: "100%", maxWidth: 32, height: h, borderRadius: 4,
+                background: hit ? "linear-gradient(to top, #22c55e, #4ade80)" : d.total > 0 ? "linear-gradient(to top, rgba(250,204,21,0.4), rgba(250,204,21,0.7))" : "rgba(255,255,255,0.04)",
+                transition: "height 0.4s ease", position: "relative",
+              }}>
+                <div style={{ position: "absolute", bottom: maxVal > 0 ? (goal / maxVal) * 80 : 0, left: -2, right: -2, height: 1, background: "rgba(255,255,255,0.15)", borderRadius: 1 }} />
+              </div>
+              <div style={{ fontSize: 10, color: d.isToday ? "#4ade80" : "rgba(255,255,255,0.3)", fontWeight: d.isToday ? 700 : 400 }}>
+                {d.isToday ? "Today" : d.dayLabel}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  // API key
+  const [apiKey, setApiKey] = useState(() => loadLS("apikey", ""));
+  const [keyVisible, setKeyVisible] = useState(false);
+  const [showKeySetup, setShowKeySetup] = useState(() => !loadLS("apikey", ""));
+
+  // Goal & onboarding
+  const [goal, setGoal] = useState(() => loadLS("goal", null));
+  const [showOnboarding, setShowOnboarding] = useState(() => loadLS("goal", null) === null);
+  const [onboardGoal, setOnboardGoal] = useState(() => String(loadLS("goal", 170) || 170));
+
+  // Search
+  const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState("");
+
+  // Tracker
+  const [tracker, setTracker] = useState(() => {
+    const td = loadLS("today", null);
+    return (td && td.date === TODAY) ? td.meals : MEAL_LABELS.map(l => ({ label: l, items: [] }));
+  });
+  const [addingTo, setAddingTo] = useState(null);
+  const [addGrams, setAddGrams] = useState("");
+  const [addNote, setAddNote] = useState("");
+  const [quickAddMeal, setQuickAddMeal] = useState(null);
+  const [editingItem, setEditingItem] = useState(null);
+  const [editGrams, setEditGrams] = useState("");
+
+  // Data
+  const [favorites, setFavorites] = useState(() => loadLS("favorites", []));
+  const [recents, setRecents] = useState(() => loadLS("recents", []));
+  const [history, setHistory] = useState(() => loadLS("history", []));
+
+  // UI
+  const [activeTab, setActiveTab] = useState("search");
+  const inputRef = useRef(null);
+
+  const totalProtein = tracker.reduce((s, m) => s + m.items.reduce((a, i) => a + i.grams, 0), 0);
+  const remaining = Math.max(0, (goal || 170) - totalProtein);
+
+  // Persist tracker + history
+  useEffect(() => {
+    if (showOnboarding || showKeySetup) return;
+    saveLS("today", { date: TODAY, meals: tracker });
+    const total = tracker.reduce((s, m) => s + m.items.reduce((a, i) => a + i.grams, 0), 0);
+    setHistory(prev => {
+      const existing = prev.filter(h => h.date !== TODAY);
+      const updated = [...existing, { date: TODAY, total }].slice(-30);
+      saveLS("history", updated);
+      return updated;
+    });
+  }, [tracker]);
+
+  // ─── API Key ───
+  function saveKey() {
+    saveLS("apikey", apiKey);
+    setShowKeySetup(false);
+  }
+
+  // ─── Onboarding ───
+  function finishOnboarding() {
+    const g = Math.max(50, Math.min(400, parseInt(onboardGoal) || 170));
+    setGoal(g);
+    saveLS("goal", g);
+    setShowOnboarding(false);
+  }
+
+  // ─── Lookup ───
+  async function lookupFood(food) {
+    if (!food.trim() || !apiKey) return;
+    setLoading(true); setError(""); setResult(null); setQuickAddMeal(null);
+    try {
+      const resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true",
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1000,
+          system: `You are a sports nutrition expert. The user will give you a food name, a brand-name product, a full meal, or a recipe description. Return ONLY valid JSON (no markdown, no backticks, no preamble). Use this exact schema:
+{
+  "name": "Display name of the food or meal",
+  "is_meal": boolean,
+  "portions": [
+    {"label": "visual description using relatable comparisons (palm-sized, fist-sized, tennis ball, handful, etc — NOT cups/oz unless liquid)", "grams_protein": number, "calories": number, "size_note": "approximate weight or common serving reference"},
+  ],
+  "per_100g_protein": number,
+  "fun_fact": "One interesting or motivating fact about this food and protein",
+  "better_alternative": {
+    "name": "A similar but higher-protein food or meal variant",
+    "why": "Brief explanation",
+    "protein_comparison": "e.g. '35g vs 22g per serving'"
+  },
+  "meal_tip": "Practical tip for when/how to eat this to hit protein goals",
+  "quick_protein": number
+}
+Provide exactly 3 portions: small, medium, large. Be accurate with protein values using USDA data.`,
+          messages: [{ role: "user", content: food.trim() }],
+        }),
+      });
+
+      if (!resp.ok) {
+        if (resp.status === 401) { setError("Invalid API key. Check your key and try again."); setShowKeySetup(true); }
+        else { const e = await resp.json().catch(() => null); setError(e?.error?.message || "API error — try again."); }
+        setLoading(false); return;
+      }
+
+      const data = await resp.json();
+      const text = data.content?.map(b => b.text || "").join("") || "";
+      const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
+      setResult(parsed);
+
+      setRecents(prev => {
+        const filtered = prev.filter(r => r.name.toLowerCase() !== parsed.name.toLowerCase());
+        const updated = [{ name: parsed.name, protein: parsed.quick_protein || parsed.portions?.[1]?.grams_protein || 0 }, ...filtered].slice(0, 12);
+        saveLS("recents", updated);
+        return updated;
+      });
+    } catch (e) {
+      setError("Couldn't look that up — try again or rephrase.");
+      console.error(e);
+    }
+    setLoading(false);
+  }
+
+  function toggleFavorite(name, protein) {
+    setFavorites(prev => {
+      const exists = prev.find(f => f.name.toLowerCase() === name.toLowerCase());
+      const updated = exists ? prev.filter(f => f.name.toLowerCase() !== name.toLowerCase()) : [...prev, { name, protein }];
+      saveLS("favorites", updated);
+      return updated;
+    });
+  }
+  function isFav(name) { return favorites.some(f => f.name.toLowerCase() === name.toLowerCase()); }
+
+  function addToTracker(mealIdx, grams, note) {
+    setTracker(prev => prev.map((m, i) => i === mealIdx ? { ...m, items: [...m.items, { grams: Number(grams), note, id: Date.now() }] } : m));
+    setAddingTo(null); setAddGrams(""); setAddNote("");
+  }
+  function removeItem(mealIdx, itemId) {
+    setTracker(prev => prev.map((m, i) => i === mealIdx ? { ...m, items: m.items.filter(it => it.id !== itemId) } : m));
+  }
+  function updateItemGrams(mealIdx, itemId, newGrams) {
+    setTracker(prev => prev.map((m, i) => i === mealIdx ? { ...m, items: m.items.map(it => it.id === itemId ? { ...it, grams: Number(newGrams) } : it) } : m));
+    setEditingItem(null); setEditGrams("");
+  }
+
+  const score = result ? getScoreColor(result.portions?.[1]?.grams_protein || 0) : null;
+
+  // ═══ API KEY SETUP ═══
+  if (showKeySetup) return (
+    <div style={{ position: "relative", zIndex: 1, maxWidth: 520, margin: "0 auto", padding: "60px 16px", textAlign: "center" }}>
+      <div style={{ fontSize: 48, marginBottom: 16 }}>🥩</div>
+      <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 8, background: "linear-gradient(135deg, #ffffff 30%, #86efac 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>What's the Protein?</h1>
+      <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 14, marginBottom: 32, lineHeight: 1.6 }}>
+        This app uses Claude to look up protein data.<br/>Enter your Anthropic API key to get started.
+      </p>
+      <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 16, padding: 24, textAlign: "left" }}>
+        <label style={{ fontSize: 12, fontWeight: 700, color: "rgba(255,255,255,0.5)", textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 8 }}>Anthropic API Key</label>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input type={keyVisible ? "text" : "password"} value={apiKey} onChange={e => setApiKey(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && apiKey.trim() && saveKey()} placeholder="sk-ant-..."
+            style={{ flex: 1, padding: "12px 14px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, color: "white", fontSize: 14, outline: "none", fontFamily: "'DM Sans', sans-serif" }} />
+          <button onClick={() => setKeyVisible(!keyVisible)} style={{ padding: "12px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, color: "rgba(255,255,255,0.5)", cursor: "pointer", fontSize: 16 }}>{keyVisible ? "🙈" : "👁"}</button>
+        </div>
+        <button onClick={saveKey} disabled={!apiKey.trim()} style={{ width: "100%", marginTop: 16, padding: "14px", background: apiKey.trim() ? "#22c55e" : "rgba(34,197,94,0.2)", border: "none", borderRadius: 12, color: "#000", fontWeight: 700, fontSize: 15, cursor: apiKey.trim() ? "pointer" : "default", fontFamily: "'DM Sans', sans-serif" }}>Continue →</button>
+        <p style={{ fontSize: 11, color: "rgba(255,255,255,0.25)", marginTop: 12, lineHeight: 1.5 }}>
+          Your key stays in your browser and is only sent to the Anthropic API.
+          Get one at <a href="https://console.anthropic.com" target="_blank" style={{ color: "#4ade80" }}>console.anthropic.com</a>
+        </p>
+      </div>
+    </div>
+  );
+
+  // ═══ ONBOARDING ═══
+  if (showOnboarding) return (
+    <div style={{ position: "relative", zIndex: 1, maxWidth: 440, margin: "0 auto", padding: "80px 20px", textAlign: "center" }}>
+      <div style={{ fontSize: 56, marginBottom: 20 }}>🥩</div>
+      <div style={{ fontSize: 13, fontFamily: "'Space Mono', monospace", color: "#22c55e", letterSpacing: 3, marginBottom: 8 }}>PROTEIN V2</div>
+      <h1 style={{ fontSize: 30, fontWeight: 800, margin: "0 0 8px", background: "linear-gradient(135deg, #ffffff 30%, #86efac 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>What's Your Target?</h1>
+      <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 14, lineHeight: 1.6, marginBottom: 36 }}>Set your daily protein goal in grams.<br/>You can always change this later.</p>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginBottom: 20 }}>
+        <button onClick={() => setOnboardGoal(String(Math.max(50, (parseInt(onboardGoal) || 170) - 10)))} style={{ width: 44, height: 44, borderRadius: 12, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "white", fontSize: 20, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
+        <div style={{ position: "relative" }}>
+          <input value={onboardGoal} onChange={e => setOnboardGoal(e.target.value.replace(/\D/g, ""))} onKeyDown={e => e.key === "Enter" && finishOnboarding()}
+            style={{ width: 120, padding: "16px 12px", textAlign: "center", fontSize: 36, fontWeight: 800, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 16, color: "white", outline: "none", fontFamily: "'DM Sans', sans-serif" }} />
+          <div style={{ position: "absolute", bottom: -22, left: 0, right: 0, fontSize: 11, color: "rgba(255,255,255,0.3)", textAlign: "center" }}>grams / day</div>
+        </div>
+        <button onClick={() => setOnboardGoal(String(Math.min(400, (parseInt(onboardGoal) || 170) + 10)))} style={{ width: 44, height: 44, borderRadius: 12, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "white", fontSize: 20, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
+      </div>
+      <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 36, marginBottom: 32 }}>
+        {[120, 150, 170, 200].map(v => (
+          <button key={v} onClick={() => setOnboardGoal(String(v))} style={{ padding: "8px 16px", borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", background: parseInt(onboardGoal) === v ? "rgba(34,197,94,0.2)" : "rgba(255,255,255,0.04)", border: `1px solid ${parseInt(onboardGoal) === v ? "rgba(34,197,94,0.4)" : "rgba(255,255,255,0.08)"}`, color: parseInt(onboardGoal) === v ? "#4ade80" : "rgba(255,255,255,0.45)" }}>{v}g</button>
+        ))}
+      </div>
+      <button onClick={finishOnboarding} style={{ width: "100%", padding: "16px", borderRadius: 14, background: "#22c55e", border: "none", color: "#000", fontWeight: 800, fontSize: 16, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>Let's Go →</button>
+    </div>
+  );
+
+  // ═══ MAIN APP ═══
+  return (
+    <div style={{ position: "relative", zIndex: 1, maxWidth: 520, margin: "0 auto", padding: "20px 16px 100px" }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+        <div>
+          <div style={{ fontSize: 11, fontFamily: "'Space Mono', monospace", color: "#22c55e", letterSpacing: 3 }}>PROTEIN</div>
+          <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0, lineHeight: 1.2 }}>What's the Protein?</h1>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <button onClick={() => setShowOnboarding(true)} style={{ padding: "6px 12px", borderRadius: 8, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.35)", fontSize: 11, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>🎯 {goal}g</button>
+          <button onClick={() => setShowKeySetup(true)} style={{ padding: "6px 8px", borderRadius: 8, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.25)", fontSize: 13, cursor: "pointer" }} title="API key settings">⚙️</button>
+        </div>
+      </div>
+
+      {/* Progress */}
+      <div style={{ padding: "12px 16px", marginBottom: 16, borderRadius: 14, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", display: "flex", alignItems: "center", gap: 14 }}>
+        <CircularProgress current={totalProtein} goal={goal || 170} />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>
+            {totalProtein >= goal ? "🎯 Goal hit!" : `${remaining}g to go`}
+          </div>
+          <div style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", lineHeight: 1.5 }}>
+            {totalProtein >= goal ? "Great work today. Keep it up." : remaining <= 40 ? "Almost there — one more solid serving." : remaining <= 80 ? "A good meal will close this gap." : "Still building. Focus on protein-first meals."}
+          </div>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
+        {[{ id: "search", icon: "🔍", label: "Search" }, { id: "tracker", icon: "📋", label: "Today" }, { id: "history", icon: "📊", label: "Week" }].map(t => (
+          <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
+            flex: 1, padding: "10px 8px", borderRadius: 10, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontSize: 13, fontWeight: 600,
+            background: activeTab === t.id ? "rgba(34,197,94,0.1)" : "rgba(255,255,255,0.03)",
+            border: `1px solid ${activeTab === t.id ? "rgba(34,197,94,0.25)" : "rgba(255,255,255,0.06)"}`,
+            color: activeTab === t.id ? "#4ade80" : "rgba(255,255,255,0.4)", transition: "all 0.15s",
+          }}>{t.icon} {t.label}</button>
+        ))}
+      </div>
+
+      {/* ═══ SEARCH TAB ═══ */}
+      {activeTab === "search" && (
+        <div style={{ animation: "fadeIn 0.2s ease" }}>
+          <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 16, padding: 4, marginBottom: 12, display: "flex", alignItems: "center" }}>
+            <span style={{ fontSize: 18, padding: "0 10px", opacity: 0.4 }}>🔍</span>
+            <input ref={inputRef} value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key === "Enter" && lookupFood(query)}
+              placeholder="A food, a full meal, a brand name..."
+              style={{ flex: 1, padding: "13px 4px", background: "none", border: "none", color: "white", fontSize: 15, outline: "none", fontFamily: "'DM Sans', sans-serif" }} />
+            <button onClick={() => lookupFood(query)} disabled={loading} style={{ padding: "10px 18px", borderRadius: 12, background: loading ? "rgba(34,197,94,0.3)" : "#22c55e", border: "none", color: "#000", fontWeight: 700, fontSize: 14, cursor: loading ? "default" : "pointer", fontFamily: "'DM Sans', sans-serif" }}>{loading ? "..." : "Go"}</button>
+          </div>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.2)", marginBottom: 16, padding: "0 4px" }}>💡 Try full meals too — "chicken stir fry with rice" or "Chipotle burrito bowl"</div>
+
+          {/* Favorites */}
+          {favorites.length > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: 1 }}>⭐ Favorites</span>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                {favorites.map(f => (
+                  <button key={f.name} onClick={() => { setQuery(f.name); lookupFood(f.name); }}
+                    style={{ padding: "7px 12px", borderRadius: 10, background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.2)", color: "#86efac", fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", gap: 6 }}>
+                    <span>{f.name}</span><span style={{ color: "rgba(255,255,255,0.3)", fontSize: 10 }}>{f.protein}g</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Recents */}
+          {recents.length > 0 && !result && !loading && (
+            <div style={{ marginBottom: 16 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: 1 }}>🕐 Recent</span>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                {recents.map(r => (
+                  <button key={r.name} onClick={() => { setQuery(r.name); lookupFood(r.name); }}
+                    style={{ padding: "6px 12px", borderRadius: 10, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.5)", fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", gap: 6 }}>
+                    <span>{r.name}</span><span style={{ color: "rgba(255,255,255,0.2)", fontSize: 10 }}>{r.protein}g</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Suggestions */}
+          {!result && !loading && recents.length === 0 && (
+            <div style={{ marginBottom: 20 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: 1 }}>Try these</span>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                {MEAL_EXAMPLES.slice(0, 12).map(f => (
+                  <button key={f} onClick={() => { setQuery(f); lookupFood(f); }}
+                    style={{ padding: "6px 12px", borderRadius: 20, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.5)", fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>{f}</button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {loading && (
+            <div style={{ textAlign: "center", padding: 40 }}>
+              <div style={{ width: 36, height: 36, border: "3px solid rgba(34,197,94,0.2)", borderTopColor: "#22c55e", borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto 12px" }} />
+              <p style={{ color: "rgba(255,255,255,0.35)", fontSize: 13 }}>Looking up protein data...</p>
+            </div>
+          )}
+
+          {error && <div style={{ padding: 16, background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 12, color: "#f87171", fontSize: 14, textAlign: "center" }}>{error}</div>}
+
+          {/* Result */}
+          {result && !loading && (
+            <div style={{ animation: "fadeIn 0.3s ease" }}>
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 14, gap: 8 }}>
+                <div style={{ flex: 1 }}>
+                  <h2 style={{ fontSize: 22, fontWeight: 800, margin: 0, lineHeight: 1.2 }}>{result.name}</h2>
+                  {result.is_meal && <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", marginTop: 3 }}>🍽️ Full meal estimate</div>}
+                </div>
+                <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                  <button onClick={() => toggleFavorite(result.name, result.quick_protein || result.portions?.[1]?.grams_protein || 0)}
+                    style={{ width: 36, height: 36, borderRadius: 10, border: "1px solid rgba(255,255,255,0.1)", background: isFav(result.name) ? "rgba(250,204,21,0.15)" : "rgba(255,255,255,0.04)", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>{isFav(result.name) ? "⭐" : "☆"}</button>
+                  <div style={{ padding: "8px 12px", borderRadius: 10, background: score.bg, border: `1px solid ${score.border}`, color: score.text, fontSize: 11, fontWeight: 700, whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 4 }}>{score.emoji} {score.label}</div>
+                </div>
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
+                {result.portions?.map((p, i) => {
+                  const pS = getScoreColor(p.grams_protein);
+                  return (
+                    <div key={i} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 12, padding: "12px 14px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 1 }}>{p.label}</div>
+                        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>{p.size_note}</div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontSize: 20, fontWeight: 800, color: pS.text, lineHeight: 1 }}>{p.grams_protein}g</div>
+                        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)" }}>{p.calories} cal</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {result.fun_fact && <div style={{ padding: "12px 14px", marginBottom: 8, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 12, fontSize: 12, color: "rgba(255,255,255,0.55)", lineHeight: 1.5 }}>💡 {result.fun_fact}</div>}
+              {result.meal_tip && <div style={{ padding: "12px 14px", marginBottom: 8, background: "rgba(34,197,94,0.06)", border: "1px solid rgba(34,197,94,0.15)", borderRadius: 12, fontSize: 12, color: "rgba(255,255,255,0.6)", lineHeight: 1.5 }}>🎯 {result.meal_tip}</div>}
+
+              {result.better_alternative && (
+                <div style={{ padding: "14px", marginBottom: 8, background: "linear-gradient(135deg, rgba(34,197,94,0.08) 0%, rgba(34,197,94,0.03) 100%)", border: "1px solid rgba(34,197,94,0.2)", borderRadius: 12 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "#22c55e", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>⬆️ Higher Protein Swap</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 3 }}>{result.better_alternative.name}</div>
+                  <div style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", marginBottom: 6, lineHeight: 1.4 }}>{result.better_alternative.why}</div>
+                  <div style={{ display: "inline-block", padding: "3px 8px", borderRadius: 6, background: "rgba(34,197,94,0.15)", fontSize: 11, fontWeight: 700, color: "#4ade80" }}>{result.better_alternative.protein_comparison}</div>
+                  <button onClick={() => { setQuery(result.better_alternative.name); lookupFood(result.better_alternative.name); }}
+                    style={{ display: "block", width: "100%", marginTop: 8, padding: "9px", background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.25)", borderRadius: 10, color: "#4ade80", fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>
+                    Look up {result.better_alternative.name} →
+                  </button>
+                </div>
+              )}
+
+              {/* Quick add with portion picker */}
+              <div style={{ padding: "12px 14px", marginTop: 8, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 12 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Quick add to today</div>
+                {quickAddMeal === null ? (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                    {MEAL_LABELS.map((label, idx) => (
+                      <button key={label} onClick={() => setQuickAddMeal(idx)} style={{ padding: "5px 10px", borderRadius: 8, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.45)", fontSize: 11, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>{label}</button>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ animation: "fadeIn 0.15s ease" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "#4ade80" }}>Adding to {MEAL_LABELS[quickAddMeal]}</span>
+                      <button onClick={() => setQuickAddMeal(null)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.3)", cursor: "pointer", fontSize: 12, fontFamily: "'DM Sans', sans-serif" }}>← Back</button>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                      {result.portions?.map((p, i) => {
+                        const pS = getScoreColor(p.grams_protein);
+                        const sizeLabel = ["S", "M", "L"][i];
+                        return (
+                          <button key={i} onClick={() => { addToTracker(quickAddMeal, p.grams_protein, result.name + ` (${sizeLabel})`); setQuickAddMeal(null); }}
+                            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", borderRadius: 10, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", cursor: "pointer", color: "white", textAlign: "left", transition: "all 0.12s" }}
+                            onMouseEnter={e => { e.currentTarget.style.background = "rgba(34,197,94,0.1)"; e.currentTarget.style.borderColor = "rgba(34,197,94,0.3)"; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.03)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)"; }}>
+                            <div><div style={{ fontSize: 12, fontWeight: 600 }}>{p.label}</div><div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>{p.size_note}</div></div>
+                            <div style={{ fontSize: 18, fontWeight: 800, color: pS.text }}>{p.grams_protein}g</div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {!result && !loading && !error && recents.length === 0 && (
+            <div style={{ textAlign: "center", padding: "20px", color: "rgba(255,255,255,0.2)" }}>
+              <div style={{ fontSize: 36, marginBottom: 8 }}>🥩</div>
+              <p style={{ fontSize: 13 }}>Search any food, meal, or brand to see protein info</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ═══ TRACKER TAB ═══ */}
+      {activeTab === "tracker" && (
+        <div style={{ animation: "fadeIn 0.2s ease" }}>
+          {tracker.map((meal, mi) => (
+            <div key={meal.label} style={{ marginBottom: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: "rgba(255,255,255,0.45)", textTransform: "uppercase", letterSpacing: 1 }}>{meal.label}</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 12, color: "rgba(255,255,255,0.25)" }}>{meal.items.reduce((a, i) => a + i.grams, 0)}g</span>
+                  <button onClick={() => { setAddingTo(mi); setAddNote(""); setAddGrams(""); }}
+                    style={{ background: "rgba(34,197,94,0.15)", border: "1px solid rgba(34,197,94,0.3)", borderRadius: 6, color: "#4ade80", cursor: "pointer", fontSize: 14, width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>+</button>
+                </div>
+              </div>
+
+              {meal.items.map(item => (
+                <div key={item.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 10px", marginBottom: 2, background: "rgba(255,255,255,0.03)", borderRadius: 8, fontSize: 13 }}>
+                  <span style={{ color: "rgba(255,255,255,0.65)" }}>{item.note || "Food"}</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    {editingItem?.mealIdx === mi && editingItem?.itemId === item.id ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                        <input value={editGrams} onChange={e => setEditGrams(e.target.value)} type="number" autoFocus
+                          onKeyDown={e => { if (e.key === "Enter" && editGrams) updateItemGrams(mi, item.id, editGrams); if (e.key === "Escape") setEditingItem(null); }}
+                          style={{ width: 48, padding: "3px 6px", background: "rgba(255,255,255,0.1)", border: "1px solid rgba(34,197,94,0.4)", borderRadius: 6, color: "white", fontSize: 13, fontWeight: 700, outline: "none", textAlign: "center", fontFamily: "'DM Sans', sans-serif" }} />
+                        <button onClick={() => editGrams && updateItemGrams(mi, item.id, editGrams)}
+                          style={{ background: "#22c55e", border: "none", borderRadius: 5, color: "black", fontWeight: 700, fontSize: 10, padding: "4px 7px", cursor: "pointer" }}>✓</button>
+                        <button onClick={() => setEditingItem(null)}
+                          style={{ background: "none", border: "none", color: "rgba(255,255,255,0.3)", fontSize: 12, cursor: "pointer", padding: "2px" }}>✕</button>
+                      </div>
+                    ) : (
+                      <button onClick={() => { setEditingItem({ mealIdx: mi, itemId: item.id }); setEditGrams(String(item.grams)); }}
+                        style={{ background: "none", border: "1px solid transparent", borderRadius: 6, padding: "2px 6px", color: "#4ade80", fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", transition: "border-color 0.15s" }}
+                        onMouseEnter={e => e.target.style.borderColor = "rgba(34,197,94,0.3)"}
+                        onMouseLeave={e => e.target.style.borderColor = "transparent"}
+                        title="Tap to edit">{item.grams}g</button>
+                    )}
+                    <button onClick={() => removeItem(mi, item.id)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.2)", cursor: "pointer", fontSize: 14, padding: "0 2px" }}>×</button>
+                  </div>
+                </div>
+              ))}
+
+              {addingTo === mi && (
+                <div style={{ display: "flex", gap: 6, marginTop: 6, animation: "fadeIn 0.15s ease" }}>
+                  <input value={addNote} onChange={e => setAddNote(e.target.value)} placeholder="Food name"
+                    style={{ flex: 1, padding: "7px 10px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, color: "white", fontSize: 12, outline: "none", fontFamily: "'DM Sans', sans-serif" }} />
+                  <input value={addGrams} onChange={e => setAddGrams(e.target.value)} placeholder="g" type="number"
+                    style={{ width: 55, padding: "7px 8px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, color: "white", fontSize: 12, outline: "none", textAlign: "center", fontFamily: "'DM Sans', sans-serif" }} />
+                  <button onClick={() => addGrams && addToTracker(mi, addGrams, addNote)}
+                    style={{ padding: "7px 12px", background: "#22c55e", border: "none", borderRadius: 8, color: "black", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>Add</button>
+                  <button onClick={() => setAddingTo(null)}
+                    style={{ padding: "7px 8px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, color: "rgba(255,255,255,0.4)", fontSize: 12, cursor: "pointer" }}>✕</button>
+                </div>
+              )}
+
+              {addingTo === mi && favorites.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+                  {favorites.map(f => (
+                    <button key={f.name} onClick={() => addToTracker(mi, f.protein, f.name)}
+                      style={{ padding: "4px 10px", borderRadius: 8, fontSize: 11, cursor: "pointer", background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.15)", color: "#86efac", fontFamily: "'DM Sans', sans-serif" }}>⭐ {f.name} ({f.protein}g)</button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+
+          <button onClick={() => setTracker(MEAL_LABELS.map(l => ({ label: l, items: [] })))} style={{ width: "100%", marginTop: 8, padding: "10px", background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.15)", borderRadius: 8, color: "rgba(255,255,255,0.3)", fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>🔄 Reset Day</button>
+        </div>
+      )}
+
+      {/* ═══ HISTORY TAB ═══ */}
+      {activeTab === "history" && (
+        <div style={{ animation: "fadeIn 0.2s ease" }}>
+          <WeeklyHistory history={history} goal={goal || 170} />
+          {history.filter(h => h.total > 0).length > 0 && (
+            <div style={{ marginTop: 20 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Recent days</div>
+              {history.filter(h => h.total > 0).sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 10).map(h => {
+                const hit = h.total >= goal;
+                const d = new Date(h.date);
+                return (
+                  <div key={h.date} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", marginBottom: 4, background: "rgba(255,255,255,0.03)", borderRadius: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 14 }}>{hit ? "✅" : "⬜"}</span>
+                      <span style={{ fontSize: 13, color: "rgba(255,255,255,0.5)" }}>
+                        {h.date === TODAY ? "Today" : d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                      </span>
+                    </div>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: hit ? "#4ade80" : "#fde047" }}>{h.total}g</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {history.filter(h => h.total > 0).length === 0 && (
+            <div style={{ textAlign: "center", padding: "30px 20px", color: "rgba(255,255,255,0.2)" }}>
+              <div style={{ fontSize: 36, marginBottom: 8 }}>📊</div>
+              <p style={{ fontSize: 13 }}>Start tracking today to see your history here</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
